@@ -1,0 +1,53 @@
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from app.models import RequirementInput
+from app.services.cost_engine import build_comparison
+from app.services.quote_sources import fetch_live_supplier_quotes
+
+app = FastAPI(title="TRON Energy Procurement Assistant", version="0.1.0")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+templates = Jinja2Templates(directory="app/templates")
+
+
+@app.get("/")
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok", "service": "tron-energy-procurement"}
+
+
+@app.get("/api/suppliers")
+async def list_suppliers():
+    quotes = fetch_live_supplier_quotes()
+    return [
+        {
+            "supplier_id": q.supplier_id,
+            "supplier_name": q.supplier_name,
+            "source_name": q.source_name,
+            "source_url": q.source_url,
+            "currency": q.currency,
+            "quoted_unit": q.quoted_unit,
+            "rate_per_unit_per_day": q.rate_per_unit_per_day,
+            "min_order_units": q.min_order_units,
+            "available_energy_units": q.available_energy_units,
+            "max_order_units": q.max_order_units,
+            "rental_period_days": q.rental_period_days,
+            "estimated_delivery_days": q.estimated_delivery_days,
+            "notes": q.notes,
+        }
+        for q in quotes
+    ]
+
+
+@app.post("/api/compare")
+async def compare(req: RequirementInput):
+    quotes = fetch_live_supplier_quotes()
+    result = build_comparison(req, quotes)
+    return JSONResponse(content=result)

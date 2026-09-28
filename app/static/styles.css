@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TRON Energy Procurement Assistant</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Procurement Decision Prototype</p>
+          <h1>TRON Energy Leasing Cost Comparison</h1>
+        </div>
+        <div class="badge">Multi-supplier sourcing</div>
+      </header>
+
+      <main class="layout">
+        <section class="panel form-panel">
+          <h2>Demand input</h2>
+          <form id="compare-form">
+            <div class="field-grid">
+              <label>
+                Required energy (units)
+                <input type="number" id="energy_units" value="1200000" required />
+              </label>
+              <label>
+                Rental duration (days)
+                <input type="number" id="rental_days" value="30" required />
+              </label>
+              <label>
+                Receiver address
+                <input type="text" id="receiver_address" value="TQjv4K2x4MVpVZQF1eYdqmYJd1hVGa6KZQ" required />
+              </label>
+              <label>
+                Budget (USD)
+                <input type="number" id="budget_usd" value="5000" step="0.01" required />
+              </label>
+              <label>
+                Latest delivery (days)
+                <input type="number" id="latest_delivery_days" value="7" required />
+              </label>
+            </div>
+            <button type="submit">Compare supplier plans</button>
+          </form>
+        </section>
+
+        <section class="panel supplier-panel">
+          <h2>Integrated suppliers</h2>
+          <div id="supplier-list" class="supplier-list"></div>
+        </section>
+
+        <section class="panel result-panel">
+          <h2>Recommendation</h2>
+          <div id="summary-box" class="summary-box">Waiting for comparison...</div>
+          <div id="result-options" class="result-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
