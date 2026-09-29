@@ -1,62 +1,65 @@
-const $ = (id) => document.getElementById(id);
-const money = (value) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD' }).format(value || 0);
-const units = (value) => Number(value || 0).toLocaleString('en-US');
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 支出控制与审计代理</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">AI SPEND GUARD</p>
+        <h1>AI 代理支出控制与审计原型</h1>
+        <p class="subtitle">预算，白名单供应商，交付窗口，链上交易和审批记录被捆绑在同一条控制链路中。</p>
+      </div>
+      <span class="status">Policy enforcement enabled</span>
+    </header>
 
-function renderSuppliers(suppliers) {
-  $('supplier-list').innerHTML = suppliers.map((s) => `
-    <div class="supplier">
-      <div class="supplier-title"><strong>${s.supplier_name}</strong><span>${s.estimated_delivery_days} 天交付</span></div>
-      <div class="muted">来源：${s.source_name}</div>
-      <div class="supplier-facts">${s.rate_per_unit_per_day.toFixed(8)} USD / 能量 / 天 · 最小 ${units(s.min_order_units)} · 可用 ${units(s.available_energy_units)} · 周期 ${s.rental_period_days} 天</div>
-      <a href="${s.source_url}" target="_blank" rel="noreferrer">查看报价来源</a>
-    </div>`).join('');
-}
+    <section class="grid top-grid">
+      <article class="card">
+        <h2>采购需求</h2>
+        <form id="compare-form">
+          <div class="form-grid">
+            <label>所需能量<input id="energy_units" type="number" min="1" value="1200000" required /></label>
+            <label>租赁时长（天）<input id="rental_days" type="number" min="1" value="30" required /></label>
+            <label class="wide">收款地址<input id="receiver_address" minlength="10" value="TQjv4K2x4MVpVZQF1eYdqmYJd1hVGa6KZQ" required /></label>
+            <label>预算（USD）<input id="budget_usd" type="number" min="0.01" step="0.01" value="5000" required /></label>
+            <label>最晚交付（天）<input id="latest_delivery_days" type="number" min="1" value="7" required /></label>
+          </div>
+          <button type="submit">获取报价并比较方案</button>
+        </form>
+      </article>
+      <article class="card">
+        <h2>已接入报价源</h2>
+        <div id="supplier-list"><p class="muted">加载中…</p></div>
+      </article>
+    </section>
 
-function renderBreakdown(breakdown) {
-  return Object.entries({
-    '租赁费': breakdown.rental_fee,
-    '服务费': breakdown.service_fee,
-    '链上手续费': breakdown.chain_fee,
-    '其他成本': breakdown.other_costs,
-    '总计': breakdown.total,
-  }).map(([label, value]) => `<div class="cost-line"><span>${label}</span><strong>${money(value)}</strong></div>`).join('');
-}
+    <section class="card results">
+      <div class="section-heading"><h2>方案推荐与费用明细</h2><span id="result-status" class="muted"></span></div>
+      <div id="summary-box" class="summary muted">提交需求后显示推荐方案。</div>
+      <div id="result-options" class="result-grid"></div>
+    </section>
 
-function renderResults(data) {
-  const selected = data.selected_plan || {};
-  if (!data.options?.length) {
-    $('summary-box').innerHTML = `<strong>无可行方案</strong><br>${selected.reason || '没有供应商同时满足能量、租期、交付或最小下单量约束。'}`;
-    $('result-options').innerHTML = '';
-    return;
-  }
-  $('summary-box').innerHTML = `<strong>推荐：${selected.plan_type === 'split_order' ? '多供应商拆单' : '单供应商采购'}</strong><br>供应商：${(selected.supplier_names || []).join(' + ')}<br>总成本：<strong>${money(selected.total_cost_usd)}</strong> · 预计交付：${selected.estimated_delivery_days} 天<br><span class="muted">推荐理由：在已接入且满足约束的方案中，总成本最低；计算范围与费用公式见下方说明。</span>`;
-  $('result-options').innerHTML = data.options.map((option, index) => {
-    const names = option.type === 'split_order' ? option.suppliers.map((s) => `${s.supplier_name}（${units(s.allocated_energy_units)}）`).join(' + ') : option.supplier_name;
-    return `<article class="option ${index === 0 ? 'recommended' : ''}"><h3>${index === 0 ? '推荐方案 · ' : ''}${option.type === 'split_order' ? '拆单采购' : '单供应商采购'}</h3><p>${names}</p>${renderBreakdown(option.cost_breakdown)}<div class="muted">交付 ${option.estimated_delivery_days} 天 · ${option.source_name || '多来源组合'}</div></article>`;
-  }).join('');
-  $('result-options').insertAdjacentHTML('beforeend', `<div class="notes muted"><strong>计算说明</strong><br>${data.notes.map((note) => `• ${note}`).join('<br>')}</div>`);
-}
-
-$('compare-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  $('result-status').textContent = '正在查询…';
-  const payload = {
-    energy_units: Number($('energy_units').value),
-    rental_days: Number($('rental_days').value),
-    receiver_address: $('receiver_address').value.trim(),
-    budget_usd: Number($('budget_usd').value),
-    latest_delivery_days: Number($('latest_delivery_days').value),
-    currency: 'USD',
-  };
-  try {
-    const response = await fetch('/api/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    renderResults(await response.json());
-    $('result-status').textContent = '查询完成';
-  } catch (error) {
-    $('summary-box').textContent = `查询失败：${error.message}`;
-    $('result-status').textContent = '失败';
-  }
-});
-
-fetch('/api/suppliers').then((r) => r.json()).then(renderSuppliers).catch(() => { $('supplier-list').innerHTML = '<p class="muted">报价源加载失败。</p>'; });
+    <section class="card results">
+      <div class="section-heading"><h2>AI 代理控制面板</h2><span class="muted">预算与停机策略</span></div>
+      <div class="form-grid">
+        <label>预算上限（USD）<input id="agent_max_total_spend_usd" type="number" min="1" value="1800" /></label>
+        <label>允许供应商ID<input id="agent_allowed_suppliers" type="text" value="energybridge-nodes" /></label>
+        <label>最晚交付（天）<input id="agent_max_delivery_days" type="number" min="1" value="3" /></label>
+        <label>接收地址前缀<input id="agent_receiver_prefix" type="text" value="TQjv4K2x4MVpVZQF1eYdqmYJd1hVGa6KZQ" /></label>
+      </div>
+      <div class="button-row">
+        <button id="run-budget-demo" type="button">运行预算超支示例</button>
+        <button id="run-supplier-demo" type="button">运行未授权商户示例</button>
+        <button id="run-deadline-demo" type="button">运行交付超期示例</button>
+      </div>
+      <div id="agent-output" class="summary muted">未执行任何代理决策。</div>
+      <div id="audit-log" class="muted"></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

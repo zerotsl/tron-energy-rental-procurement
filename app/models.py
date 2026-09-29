@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -71,3 +75,36 @@ class ComparisonResult(BaseModel):
     options: list[dict]
     supplier_catalog: list[dict]
     notes: list[str]
+
+
+class AgentPolicy(BaseModel):
+    agent_name: str = "procurement-agent"
+    max_total_spend_usd: float = 5000.0
+    max_per_unit_cost_usd: float = 0.0
+    allowed_supplier_ids: list[str] = Field(default_factory=lambda: ["energybridge-nodes"])
+    blocked_supplier_ids: list[str] = Field(default_factory=list)
+    max_delivery_days: int = 7
+    require_human_approval: bool = True
+    allowed_receiver_prefixes: list[str] = Field(default_factory=lambda: ["TQjv4K2x4MVpVZQF1eYdqmYJd1hVGa6KZQ"])
+    notes: str = "Agent pays only approved suppliers within cap; any violation halts execution."
+
+
+class AgentDecisionRequest(BaseModel):
+    requirement: RequirementInput
+    policy: AgentPolicy | None = None
+    scenario: str | None = None
+
+
+class AgentDecision(BaseModel):
+    session_id: str
+    status: str
+    selected_supplier: str | None = None
+    total_cost_usd: float | None = None
+    budget_limit_usd: float | None = None
+    reason: str
+    approval_id: str | None = None
+    kiln_model: str | None = None
+    kiln_tokens_used: int | None = None
+    kiln_energy_kwh: float | None = None
+    tx_hash: str | None = None
+    trace: list[str] = Field(default_factory=list)

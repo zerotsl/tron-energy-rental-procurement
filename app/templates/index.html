@@ -1,48 +1,77 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>波场能量租赁采购助手</title>
-  <link rel="stylesheet" href="/static/styles.css" />
-</head>
-<body>
-  <main class="shell">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">TRON ENERGY PROCUREMENT</p>
-        <h1>波场能量租赁采购与成本对比助手</h1>
-        <p class="subtitle">统一报价口径，对比单供应商与拆单采购，输出可审计的费用明细。</p>
-      </div>
-      <span class="status">Demo quote mode</span>
-    </header>
+from __future__ import annotations
 
-    <section class="grid top-grid">
-      <article class="card">
-        <h2>采购需求</h2>
-        <form id="compare-form">
-          <div class="form-grid">
-            <label>所需能量<input id="energy_units" type="number" min="1" value="1200000" required /></label>
-            <label>租赁时长（天）<input id="rental_days" type="number" min="1" value="30" required /></label>
-            <label class="wide">收款地址<input id="receiver_address" minlength="10" value="TQjv4K2x4MVpVZQF1eYdqmYJd1hVGa6KZQ" required /></label>
-            <label>预算（USD）<input id="budget_usd" type="number" min="0.01" step="0.01" value="5000" required /></label>
-            <label>最晚交付（天）<input id="latest_delivery_days" type="number" min="1" value="7" required /></label>
-          </div>
-          <button type="submit">获取报价并比较方案</button>
-        </form>
-      </article>
-      <article class="card">
-        <h2>已接入报价源</h2>
-        <div id="supplier-list"><p class="muted">加载中…</p></div>
-      </article>
-    </section>
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
-    <section class="card results">
-      <div class="section-heading"><h2>方案推荐与费用明细</h2><span id="result-status" class="muted"></span></div>
-      <div id="summary-box" class="summary muted">提交需求后显示推荐方案。</div>
-      <div id="result-options" class="result-grid"></div>
-    </section>
-  </main>
-  <script src="/static/app.js"></script>
-</body>
-</html>
+from app.models import RequirementInput
+from app.services.agent_controls import approve_pending_purchase, default_agent_policy, evaluate_purchase_decision, generate_demo_scenario
+from app.services.audit_store import read_recent_records
+from app.services.blockchain import read_recent_settlements
+from app.services.quote_sources import fetch_live_supplier_quotes
+
+app = FastAPI(title="TRON Energy Procurement Assistant", version="0.2.0")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+templates = Jinja2Templates(directory="app/templates")
+
+
+@app.get("/")
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok", "service": "tron-energy-procurement", "quote_mode": "demo", "agent_controls": "enabled"}
+
+
+@app.get("/api/suppliers")
+async def list_suppliers():
+    return [quote.model_dump() for quote in fetch_live_supplier_quotes()]
+
+
+@app.post("/api/compare")
+async def compare(requirement: RequirementInput):
+    result = __import__("app.services.cost_engine", fromlist=["build_comparison"]).build_comparison(requirement, fetch_live_supplier_quotes())
+    return JSONResponse(content=result)
+
+
+@app.get("/api/agent/policy")
+async def agent_policy():
+    return default_agent_policy()
+
+
+@app.post("/api/agent/plan")
+async def agent_plan(payload: dict):
+    requirement = payload.get("requirement") or payload
+    policy = payload.get("policy") or default_agent_policy()
+    scenario = payload.get("scenario")
+    return evaluate_purchase_decision(requirement, policy=policy, scenario=scenario)
+
+
+@app.post("/api/agent/demo")
+async def agent_demo(payload: dict):
+    scenario = payload.get("scenario") or "budget_overrun"
+    return generate_demo_scenario(scenario)
+
+
+@app.get("/api/agent/audit")
+async def agent_audit():
+    return {"records": read_recent_records(limit=50)}
+
+
+@app.get("/api/agent/ledger")
+async def agent_ledger():
+    return {"transactions": read_recent_settlements(limit=20)}
+
+
+@app.post("/api/agent/approve")
+async def agent_approve(payload: dict):
+    approval_id = payload.get("approval_id")
+    return approve_pending_purchase(approval_id)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,130 +1,86 @@
-const form = document.getElementById('compare-form');
-const supplierList = document.getElementById('supplier-list');
-const summaryBox = document.getElementById('summary-box');
-const resultOptions = document.getElementById('result-options');
+const $ = (id) => document.getElementById(id);
+const money = (value) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD' }).format(value || 0);
+const units = (value) => Number(value || 0).toLocaleString('en-US');
 
-function renderSuppliers(list) {
-  supplierList.innerHTML = list
-    .map(
-      (supplier) => `
-        <article class="supplier-card">
-          <h3>${supplier.supplier_name}</h3>
-          <div class="meta">
-            <div>Source: ${supplier.source_name}</div>
-            <div>Unit price: $${supplier.rate_per_unit_per_day.toFixed(8)} / unit / day</div>
-            <div>Min order: ${supplier.min_order_units.toLocaleString()} units</div>
-            <div>Capacity: ${supplier.available_energy_units.toLocaleString()} units</div>
-            <div>Rental period: ${supplier.rental_period_days} days</div>
-            <div>Delivery: ${supplier.estimated_delivery_days} days</div>
-            <div>URL: ${supplier.source_url}</div>
-          </div>
-        </article>
-      `
-    )
-    .join('');
+function renderSuppliers(suppliers) {
+  $('supplier-list').innerHTML = suppliers.map((s) => `
+    <div class="supplier">
+      <div class="supplier-title"><strong>${s.supplier_name}</strong><span>${s.estimated_delivery_days} 天交付</span></div>
+      <div class="muted">来源：${s.source_name}</div>
+      <div class="supplier-facts">${Number(s.rate_per_unit_per_day).toFixed(8)} USD / 能量 / 天 · 最小 ${units(s.min_order_units)} · 可用 ${units(s.available_energy_units)} · 周期 ${s.rental_period_days} 天</div>
+      <a href="${s.source_url}" target="_blank" rel="noreferrer">查看报价来源</a>
+    </div>`).join('');
 }
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
+function renderBreakdown(breakdown) {
+  return Object.entries({
+    '租赁费': breakdown.rental_fee,
+    '服务费': breakdown.service_fee,
+    '链上手续费': breakdown.chain_fee,
+    '其他成本': breakdown.other_costs,
+    '总计': breakdown.total,
+  }).map(([label, value]) => `<div class="cost-line"><span>${label}</span><strong>${money(value)}</strong></div>`).join('');
 }
 
-function renderResults(res) {
-  const { selected_plan, options, notes } = res;
-
-  if (!options || options.length === 0) {
-    summaryBox.innerHTML = `<strong>No feasible plan</strong><br />${res.selected_plan?.reason || 'No available supplier satisfies the request.'}`;
-    resultOptions.innerHTML = '';
+function renderResults(data) {
+  const selected = data.selected_plan || {};
+  if (!data.options?.length) {
+    $('summary-box').innerHTML = `<strong>无可行方案</strong><br>${selected.reason || '没有供应商同时满足能量、租期、交付或最小下单量约束。'}`;
+    $('result-options').innerHTML = '';
     return;
   }
-
-  const selected = selected_plan || options[0];
-  summaryBox.innerHTML = `
-    <strong>Recommended plan:</strong> ${selected.plan_type === 'split_order' ? 'Split-order procurement' : 'Single-supplier procurement'}<br />
-    <strong>Total cost:</strong> ${formatCurrency(selected.total_cost_usd)}<br />
-    <strong>Suppliers:</strong> ${(selected.supplier_names || []).join(', ') || 'N/A'}<br />
-    <strong>Delivery estimate:</strong> ${selected.estimated_delivery_days ?? 'N/A'} days
-  `;
-
-  const cards = options
-    .slice(0, 4)
-    .map((option) => {
-      const isSelected = option.total_cost_usd === selected.total_cost_usd && option.type === selected.plan_type;
-      const supplierNames = option.type === 'split_order'
-        ? option.suppliers.map((item) => item.supplier_name).join(' + ')
-        : option.supplier_name;
-
-      return `
-        <article class="result-card">
-          <h3>${option.type === 'split_order' ? 'Split-order plan' : 'Single-supplier plan'} ${isSelected ? '<span class="badge-success">Recommended</span>' : ''}</h3>
-          <p><strong>Suppliers:</strong> ${supplierNames}</p>
-          <div class="cost-line"><span>Rental fee</span><strong>${formatCurrency(option.cost_breakdown?.rental_fee ?? 0)}</strong></div>
-          <div class="cost-line"><span>Service fee</span><strong>${formatCurrency(option.cost_breakdown?.service_fee ?? 0)}</strong></div>
-          <div class="cost-line"><span>Chain fee</span><strong>${formatCurrency(option.cost_breakdown?.chain_fee ?? 0)}</strong></div>
-          <div class="cost-line"><span>Other costs</span><strong>${formatCurrency(option.cost_breakdown?.other_costs ?? 0)}</strong></div>
-          <div class="cost-line"><span>Total</span><strong>${formatCurrency(option.total_cost_usd)}</strong></div>
-          <p class="meta">Delivery: ${option.estimated_delivery_days ?? 'N/A'} days</p>
-        </article>
-      `;
-    })
-    .join('');
-
-  resultOptions.innerHTML = cards + notes
-    .map((note) => `<p class="meta">• ${note}</p>`)
-    .join('');
+  $('summary-box').innerHTML = `<strong>推荐：${selected.plan_type === 'split_order' ? '多供应商拆单' : '单供应商采购'}</strong><br>供应商：${(selected.supplier_names || []).join(', ')}<br>总成本：${money(selected.total_cost_usd)}<br>交付时间：${selected.estimated_delivery_days || 'N/A'} 天`;
+  $('result-options').innerHTML = data.options.map((option, index) => {
+    const names = option.type === 'split_order' ? option.suppliers.map((s) => `${s.supplier_name}（${units(s.allocated_energy_units)}）`).join(' + ') : option.supplier_name;
+    return `<article class="option ${index === 0 ? 'recommended' : ''}"><h3>${index === 0 ? '推荐方案 · ' : ''}${option.type === 'split_order' ? '拆单采购' : '单供应商采购'}</h3><p><strong>供应商：</strong>${names}</p>${renderBreakdown(option.cost_breakdown)}<p class="muted">交付：${option.estimated_delivery_days || 'N/A'} 天</p></article>`;
+  }).join('');
+  $('result-options').insertAdjacentHTML('beforeend', `<div class="notes muted"><strong>计算说明</strong><br>${data.notes.map((note) => `• ${note}`).join('<br>')}</div>`);
 }
 
-function loadSuppliers() {
-  fetch('/api/suppliers')
-    .then((response) => response.json())
-    .then((data) => renderSuppliers(data))
-    .catch(() => {
-      supplierList.innerHTML = '<p class="meta">Unable to load supplier catalog.</p>';
-    });
-}
-
-form.addEventListener('submit', (event) => {
+$('compare-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-
+  $('result-status').textContent = '正在查询…';
   const payload = {
-    energy_units: Number(document.getElementById('energy_units').value),
-    rental_days: Number(document.getElementById('rental_days').value),
-    receiver_address: document.getElementById('receiver_address').value,
-    budget_usd: Number(document.getElementById('budget_usd').value),
-    latest_delivery_days: Number(document.getElementById('latest_delivery_days').value),
+    energy_units: Number($('energy_units').value),
+    rental_days: Number($('rental_days').value),
+    receiver_address: $('receiver_address').value.trim(),
+    budget_usd: Number($('budget_usd').value),
+    latest_delivery_days: Number($('latest_delivery_days').value),
     currency: 'USD',
   };
-
-  fetch('/api/compare', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-    .then((response) => response.json())
-    .then((data) => renderResults(data))
-    .catch((error) => {
-      summaryBox.innerHTML = 'Error while comparing supplier plans.';
-      console.error(error);
-    });
+  try {
+    const response = await fetch('/api/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    renderResults(await response.json());
+    $('result-status').textContent = '查询完成';
+  } catch (error) {
+    $('summary-box').textContent = `查询失败：${error.message}`;
+    $('result-status').textContent = '失败';
+  }
 });
 
-loadSuppliers();
-fetch('/api/compare', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    energy_units: 1200000,
-    rental_days: 30,
-    receiver_address: 'TQjv4K2x4MVpVZQF1eYdqmYJd1hVGa6KZQ',
-    budget_usd: 5000,
-    latest_delivery_days: 7,
-    currency: 'USD',
-  }),
-})
-  .then((response) => response.json())
-  .then((data) => renderResults(data))
-  .catch((error) => console.error(error));
+async function runAgentScenario(name) {
+  const payload = {
+    scenario: name,
+    policy: {
+      max_total_spend_usd: Number($('agent_max_total_spend_usd').value),
+      allowed_supplier_ids: $('agent_allowed_suppliers').value.split(',').map((item) => item.trim()).filter(Boolean),
+      max_delivery_days: Number($('agent_max_delivery_days').value),
+      allowed_receiver_prefixes: [$('agent_receiver_prefix').value.trim()],
+      require_human_approval: true,
+    },
+  };
+  const response = await fetch('/api/agent/demo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const data = await response.json();
+  $('agent-output').innerHTML = `<strong>Agent status:</strong> ${data.status}<br><strong>Reason:</strong> ${data.reason}<br><strong>Tx hash:</strong> ${data.tx_hash || 'none'}<br><strong>Approval ID:</strong> ${data.approval_id || 'n/a'}`;
+  const auditResponse = await fetch('/api/agent/audit');
+  const auditJson = await auditResponse.json();
+  const lines = (auditJson.records || []).slice(0, 6).map((item) => `<div>${item.timestamp || '—'} · ${item.status} · ${item.reason || item.message || 'no reason'}</div>`).join('');
+  $('audit-log').innerHTML = `<strong>Recent audit trail</strong><br>${lines || '<span class="muted">No audit rows found.</span>'}`;
+}
+
+$('run-budget-demo').addEventListener('click', () => runAgentScenario('budget_overrun'));
+$('run-supplier-demo').addEventListener('click', () => runAgentScenario('blocked_supplier'));
+$('run-deadline-demo').addEventListener('click', () => runAgentScenario('deadline_violation'));
+
+fetch('/api/suppliers').then((r) => r.json()).then(renderSuppliers).catch(() => { $('supplier-list').innerHTML = '<p class="muted">报价源加载失败。</p>'; });
