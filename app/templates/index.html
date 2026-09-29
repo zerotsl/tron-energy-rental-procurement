@@ -1,77 +1,241 @@
-from __future__ import annotations
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 代理支出控制与审计系统</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <!-- Header -->
+    <header class="hero">
+      <div>
+        <p class="eyebrow">AI AGENT SPEND GUARD</p>
+        <h1>AI 代理支出控制与审计系统</h1>
+        <p class="subtitle">端到端预算控制、Kiln LLM 决策、链上交易结算、不可篡改审计记录</p>
+      </div>
+      <div class="status-group">
+        <span class="status status-active">系统运行中</span>
+        <span class="status status-info" id="api-health">检查中…</span>
+      </div>
+    </header>
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+    <!-- Tabs Navigation -->
+    <div class="tabs-nav">
+      <button class="tab-btn active" data-tab="workbench">👔 审批工作台</button>
+      <button class="tab-btn" data-tab="scenarios">🎬 停止示例演示</button>
+      <button class="tab-btn" data-tab="audit">📋 审计台账</button>
+      <button class="tab-btn" data-tab="ledger">⛓️ 链上账本</button>
+    </div>
 
-from app.models import RequirementInput
-from app.services.agent_controls import approve_pending_purchase, default_agent_policy, evaluate_purchase_decision, generate_demo_scenario
-from app.services.audit_store import read_recent_records
-from app.services.blockchain import read_recent_settlements
-from app.services.quote_sources import fetch_live_supplier_quotes
+    <!-- TAB 1: Approval Workbench -->
+    <section id="tab-workbench" class="tab-content active">
+      <div class="grid two-col">
+        <!-- Policy Configuration -->
+        <article class="card">
+          <h2>🛡️ 代理政策配置</h2>
+          <p class="card-desc">设置代理的支出边界与授权范围</p>
+          <div class="form-grid">
+            <label>
+              <span class="label-text">预算上限 (USD)</span>
+              <input id="policy_max_spend" type="number" min="1" value="1800.00" step="0.01" />
+            </label>
+            <label>
+              <span class="label-text">允许供应商</span>
+              <input id="policy_suppliers" type="text" value="energybridge-nodes" placeholder="多个用逗号分隔" />
+            </label>
+            <label>
+              <span class="label-text">最晚交付 (天)</span>
+              <input id="policy_max_delivery" type="number" min="1" value="3" />
+            </label>
+            <label>
+              <span class="label-text">收款地址前缀</span>
+              <input id="policy_receiver_prefix" type="text" value="TQjv4K2x4MVpVZQF1eYdqmYJd1hVGa6KZQ" />
+            </label>
+          </div>
+          <button class="btn btn-primary" id="btn-update-policy">💾 保存政策</button>
+          <div id="policy-status" class="muted status-line"></div>
+        </article>
 
-app = FastAPI(title="TRON Energy Procurement Assistant", version="0.2.0")
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+        <!-- Current Policy Display -->
+        <article class="card">
+          <h2>📌 当前政策</h2>
+          <p class="card-desc">实时显示代理当前的授权配置</p>
+          <div id="current-policy" class="policy-display">
+            <div class="policy-item">
+              <span class="policy-label">预算上限</span>
+              <span class="policy-value" id="display-max-spend">$1,800.00</span>
+            </div>
+            <div class="policy-item">
+              <span class="policy-label">允许供应商</span>
+              <span class="policy-value" id="display-suppliers">energybridge-nodes</span>
+            </div>
+            <div class="policy-item">
+              <span class="policy-label">最晚交付</span>
+              <span class="policy-value" id="display-delivery">3 天</span>
+            </div>
+            <div class="policy-item">
+              <span class="policy-label">收款地址</span>
+              <span class="policy-value" id="display-receiver">TQjv4K2...</span>
+            </div>
+          </div>
+          <button class="btn btn-secondary" id="btn-load-policy">🔄 从服务器加载</button>
+        </article>
+      </div>
 
+      <!-- Purchase Request & Decision -->
+      <div class="grid two-col">
+        <article class="card">
+          <h2>📝 采购需求</h2>
+          <p class="card-desc">提交采购需求给 AI 代理评估</p>
+          <form id="purchase-form" class="form-grid">
+            <label>
+              <span class="label-text">所需能量 (units)</span>
+              <input id="req_energy" type="number" min="1" value="1200000" required />
+            </label>
+            <label>
+              <span class="label-text">租赁时长 (天)</span>
+              <input id="req_rental_days" type="number" min="1" value="30" required />
+            </label>
+            <label>
+              <span class="label-text">收款地址</span>
+              <input id="req_receiver" type="text" value="TQjv4K2x4MVpVZQF1eYdqmYJd1hVGa6KZQ" required />
+            </label>
+            <label>
+              <span class="label-text">用户预算 (USD)</span>
+              <input id="req_budget" type="number" min="0.01" step="0.01" value="5000" required />
+            </label>
+            <label>
+              <span class="label-text">最晚交付 (天)</span>
+              <input id="req_deadline" type="number" min="1" value="7" required />
+            </label>
+          </form>
+          <button class="btn btn-primary" form="purchase-form" type="submit">🚀 提交给代理评估</button>
+        </article>
 
-@app.get("/")
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+        <article class="card">
+          <h2>✅ 代理决策结果</h2>
+          <p class="card-desc">AI 代理的批准/停止决策与原因</p>
+          <div id="agent-decision" class="decision-box">
+            <p class="muted">未执行任何决策</p>
+          </div>
+          <div id="kiln-info" class="kiln-stats">
+            <div class="stat-item">
+              <span class="stat-label">Kiln 模型</span>
+              <span class="stat-value" id="kiln-model">-</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">令牌消耗</span>
+              <span class="stat-value" id="kiln-tokens">-</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">能耗估算</span>
+              <span class="stat-value" id="kiln-energy">-</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
 
+    <!-- TAB 2: Stop Scenarios Demo -->
+    <section id="tab-scenarios" class="tab-content">
+      <article class="card">
+        <h2>🎬 三种停止场景演示</h2>
+        <p class="card-desc">点击按钮自动触发代理停机事件，查看审计日志</p>
+        
+        <div class="scenarios-grid">
+          <!-- Scenario 1: Budget Overrun -->
+          <div class="scenario-box">
+            <h3>📊 场景 1: 预算超支</h3>
+            <p class="scenario-desc">采购总成本超过代理预算上限，代理停机</p>
+            <div class="scenario-params">
+              <div><strong>政策预算:</strong> $1,800.00</div>
+              <div><strong>实际成本:</strong> $1,952.45 ❌</div>
+              <div><strong>超支:</strong> $152.45</div>
+            </div>
+            <button class="btn btn-danger" id="btn-demo-budget">▶️ 运行演示</button>
+            <div id="demo-budget-result" class="demo-result"></div>
+          </div>
 
-@app.get("/api/health")
-async def health_check():
-    return {"status": "ok", "service": "tron-energy-procurement", "quote_mode": "demo", "agent_controls": "enabled"}
+          <!-- Scenario 2: Unauthorized Supplier -->
+          <div class="scenario-box">
+            <h3>🚫 场景 2: 未授权供应商</h3>
+            <p class="scenario-desc">代理尝试选择不在白��单内的供应商，立即停机</p>
+            <div class="scenario-params">
+              <div><strong>允许供应商:</strong> energybridge-nodes</div>
+              <div><strong>选中供应商:</strong> TronLease Pro ❌</div>
+              <div><strong>状态:</strong> 未授权</div>
+            </div>
+            <button class="btn btn-danger" id="btn-demo-supplier">▶️ 运行演示</button>
+            <div id="demo-supplier-result" class="demo-result"></div>
+          </div>
 
+          <!-- Scenario 3: Deadline Violation -->
+          <div class="scenario-box">
+            <h3>⏰ 场景 3: 交付超期</h3>
+            <p class="scenario-desc">供应商交付时间超过代理允许的最晚期限，停机</p>
+            <div class="scenario-params">
+              <div><strong>最晚交付:</strong> 2 天</div>
+              <div><strong>供应商交付:</strong> 3 天 ❌</div>
+              <div><strong>超期:</strong> 1 天</div>
+            </div>
+            <button class="btn btn-danger" id="btn-demo-deadline">▶️ 运行演示</button>
+            <div id="demo-deadline-result" class="demo-result"></div>
+          </div>
+        </div>
+      </article>
 
-@app.get("/api/suppliers")
-async def list_suppliers():
-    return [quote.model_dump() for quote in fetch_live_supplier_quotes()]
+      <!-- Unified Demo Output -->
+      <article class="card">
+        <h2>📢 演示结果汇总</h2>
+        <div id="demo-output" class="demo-output">
+          <p class="muted">点击上方任意演示按钮查看结果</p>
+        </div>
+      </article>
+    </section>
 
+    <!-- TAB 3: Audit Ledger -->
+    <section id="tab-audit" class="tab-content">
+      <article class="card">
+        <h2>📋 审计台账</h2>
+        <p class="card-desc">所有代理决策、停机事件、Kiln 调用的完整记录</p>
+        
+        <div class="audit-controls">
+          <button class="btn btn-secondary" id="btn-refresh-audit">🔄 刷新</button>
+          <select id="audit-filter">
+            <option value="">所有事件</option>
+            <option value="agent_stop">停止事件</option>
+            <option value="agent_approval">批准事件</option>
+            <option value="kiln_call">Kiln 调用</option>
+          </select>
+          <span id="audit-count" class="muted">加载中…</span>
+        </div>
 
-@app.post("/api/compare")
-async def compare(requirement: RequirementInput):
-    result = __import__("app.services.cost_engine", fromlist=["build_comparison"]).build_comparison(requirement, fetch_live_supplier_quotes())
-    return JSONResponse(content=result)
+        <div id="audit-list" class="audit-list">
+          <p class="muted">加载中…</p>
+        </div>
+      </article>
+    </section>
 
+    <!-- TAB 4: Blockchain Ledger -->
+    <section id="tab-ledger" class="tab-content">
+      <article class="card">
+        <h2>⛓️ 链上交易账本</h2>
+        <p class="card-desc">所有已批准交易的链上结算记录 (Tron Nile 测试网)</p>
+        
+        <div class="ledger-controls">
+          <button class="btn btn-secondary" id="btn-refresh-ledger">🔄 刷新</button>
+          <span id="ledger-count" class="muted">加载中…</span>
+        </div>
 
-@app.get("/api/agent/policy")
-async def agent_policy():
-    return default_agent_policy()
+        <div id="ledger-list" class="ledger-list">
+          <p class="muted">加载中…</p>
+        </div>
+      </article>
+    </section>
+  </main>
 
-
-@app.post("/api/agent/plan")
-async def agent_plan(payload: dict):
-    requirement = payload.get("requirement") or payload
-    policy = payload.get("policy") or default_agent_policy()
-    scenario = payload.get("scenario")
-    return evaluate_purchase_decision(requirement, policy=policy, scenario=scenario)
-
-
-@app.post("/api/agent/demo")
-async def agent_demo(payload: dict):
-    scenario = payload.get("scenario") or "budget_overrun"
-    return generate_demo_scenario(scenario)
-
-
-@app.get("/api/agent/audit")
-async def agent_audit():
-    return {"records": read_recent_records(limit=50)}
-
-
-@app.get("/api/agent/ledger")
-async def agent_ledger():
-    return {"transactions": read_recent_settlements(limit=20)}
-
-
-@app.post("/api/agent/approve")
-async def agent_approve(payload: dict):
-    approval_id = payload.get("approval_id")
-    return approve_pending_purchase(approval_id)
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+  <script src="/static/app.js"></script>
+</body>
+</html>
